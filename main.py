@@ -9,14 +9,13 @@ from googleapiclient.http import MediaIoBaseDownload
 app = Flask(__name__)
 
 def get_drive_service(readonly=True):
-    scope = 'https://www.googleapis.com/auth/drive.readonly' if readonly else 'https://www.googleapis.com/auth/drive'
     creds = Credentials(
         token=None,
         refresh_token=os.environ['GOOGLE_REFRESH_TOKEN'],
         client_id=os.environ['GOOGLE_CLIENT_ID'],
         client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
         token_uri='https://oauth2.googleapis.com/token',
-        scopes=[scope]
+        scopes=['https://www.googleapis.com/auth/drive.readonly']
     )
     creds.refresh(Request())
     return build('drive', 'v3', credentials=creds)
