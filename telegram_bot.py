@@ -31,7 +31,8 @@ def buscar_usuario(telefono):
         ).execute()
         rows = result.get('values', [])
         for row in rows[1:]:
-            if len(row) >= 5 and row[0].strip() == str(telefono) and row[4].strip().upper() == 'TRUE':
+print(f"Comparando: [{row[0].strip()}] vs [{str(telefono)}] — iguales: {row[0].strip() == str(telefono)}")
+if len(row) >= 5 and row[0].strip() == str(telefono) and row[4].strip().upper() == 'TRUE':
                 return {
                     'telefono': row[0],
                     'nombre': row[1],
