@@ -30,7 +30,7 @@ def buscar_usuario(telefono):
             range='Hoja1!A:E'
         ).execute()
         rows = result.get('values', [])
-        for row in rows[1:]:  # saltar encabezado
+        for row in rows[1:]:
             if len(row) >= 5 and row[0].strip() == str(telefono) and row[4].strip().upper() == 'TRUE':
                 return {
                     'telefono': row[0],
@@ -56,9 +56,33 @@ def consultar_agente(pregunta, usuario):
     except Exception as e:
         return f"Error consultando al agente: {e}"
 
-def send_message(chat_id, text):
+def send_message(chat_id, text, reply_markup=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    requests.post(url, json={'chat_id': chat_id, 'text': text})
+    payload = {'chat_id': chat_id, 'text': text}
+    if reply_markup:
+        payload['reply_markup'] = reply_markup
+    requests.post(url, json=payload)
+
+def request_phone(chat_id):
+    reply_markup = {
+        "keyboard": [[{
+            "text": "📱 Compartir mi número",
+            "request_contact": True
+        }]],
+        "resize_keyboard": True,
+        "one_time_keyboard": True
+    }
+    send_message(
+        chat_id,
+        "Hola! Soy Jarvis, el agente de Simón.\n\n"
+        "Para verificar tu acceso necesito confirmar tu número de teléfono.\n"
+        "Toca el botón para compartirlo de forma segura 👇",
+        reply_markup=reply_markup
+    )
+
+def remove_keyboard(chat_id, text):
+    reply_markup = {"remove_keyboard": True}
+    send_message(chat_id, text, reply_markup=reply_markup)
 
 def get_updates(offset=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
@@ -69,6 +93,9 @@ def get_updates(offset=None):
     except:
         return {'result': []}
 
+# Sesiones en memoria: user_id -> usuario verificado
+sesiones = {}
+
 def main():
     print("Bot Jarvis Simón iniciado...")
     offset = None
@@ -78,30 +105,54 @@ def main():
             offset = update['update_id'] + 1
             if 'message' not in update:
                 continue
+
             msg = update['message']
             chat_id = msg['chat']['id']
-            telefono_raw = msg.get('contact', {}).get('phone_number') or str(msg['from']['id'])
+            user_id = msg['from']['id']
             texto = msg.get('text', '').strip()
-            if not texto or texto.startswith('/'):
-                if texto == '/start':
-                    send_message(chat_id,
-                        "Hola! Soy Jarvis, el agente de Simón.\n"
-                        "Escribe tu pregunta directamente y te respondo.")
-                continue
-            # Buscar por número de Telegram (usamos user_id como fallback)
-            telefono = str(msg['from']['id'])
-            # Intentar obtener número real si compartió contacto
+
+            # Usuario comparte su número (botón)
             if 'contact' in msg:
-                telefono = msg['contact']['phone_number'].replace('+', '')
-            usuario = buscar_usuario(telefono)
-            if not usuario:
-                send_message(chat_id,
-                    "No estás registrado para usar este agente.\n"
-                    "Contacta a Simón para solicitar acceso.")
+                telefono = msg['contact']['phone_number'].replace('+', '').replace(' ', '')
+                # Verificar que el contacto es del mismo usuario (no de otro)
+                if msg['contact'].get('user_id') and msg['contact']['user_id'] != user_id:
+                    send_message(chat_id, "⚠️ Por favor comparte tu propio número, no el de otro contacto.")
+                    continue
+                usuario = buscar_usuario(telefono)
+                if usuario:
+                    sesiones[user_id] = usuario
+                    remove_keyboard(chat_id,
+                        f"✅ Acceso verificado. Hola {usuario['nombre'].split()[0]}!\n"
+                        "Ya puedes hacerme tus preguntas.")
+                else:
+                    remove_keyboard(chat_id,
+                        "❌ Tu número no está registrado.\n"
+                        "Contacta a Simón para solicitar acceso.")
                 continue
+
+            # Comando /start
+            if texto == '/start':
+                if user_id in sesiones:
+                    send_message(chat_id,
+                        f"Ya estás verificado como {sesiones[user_id]['nombre'].split()[0]}. "
+                        "¿En qué te puedo ayudar?")
+                else:
+                    request_phone(chat_id)
+                continue
+
+            # Pregunta normal
+            if not texto:
+                continue
+
+            if user_id not in sesiones:
+                request_phone(chat_id)
+                continue
+
+            usuario = sesiones[user_id]
             send_message(chat_id, "Consultando... un momento ⏳")
             respuesta = consultar_agente(texto, usuario)
             send_message(chat_id, respuesta)
+
         time.sleep(1)
 
 if __name__ == '__main__':
