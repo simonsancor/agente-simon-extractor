@@ -30,8 +30,8 @@ def buscar_usuario(telefono):
             range='Hoja1!A:E'
         ).execute()
         rows = result.get('values', [])
-for row in rows[1:]:
-            print(f"Comparando: [{row[0].strip()}] vs [{str(telefono)}] — iguales: {row[0].strip() == str(telefono)}")
+        for row in rows[1:]:
+            print(f"Comparando: [{row[0].strip()}] vs [{str(telefono)}]")
             if len(row) >= 5 and row[0].strip() == str(telefono) and row[4].strip().upper() == 'TRUE':
                 return {
                     'telefono': row[0],
@@ -94,7 +94,6 @@ def get_updates(offset=None):
     except:
         return {'result': []}
 
-# Sesiones en memoria: user_id -> usuario verificado
 sesiones = {}
 
 def main():
@@ -112,10 +111,8 @@ def main():
             user_id = msg['from']['id']
             texto = msg.get('text', '').strip()
 
-            # Usuario comparte su número (botón)
             if 'contact' in msg:
                 telefono = msg['contact']['phone_number'].replace('+', '').replace(' ', '')
-                # Verificar que el contacto es del mismo usuario (no de otro)
                 if msg['contact'].get('user_id') and msg['contact']['user_id'] != user_id:
                     send_message(chat_id, "⚠️ Por favor comparte tu propio número, no el de otro contacto.")
                     continue
@@ -131,7 +128,6 @@ def main():
                         "Contacta a Simón para solicitar acceso.")
                 continue
 
-            # Comando /start
             if texto == '/start':
                 if user_id in sesiones:
                     send_message(chat_id,
@@ -141,7 +137,6 @@ def main():
                     request_phone(chat_id)
                 continue
 
-            # Pregunta normal
             if not texto:
                 continue
 
