@@ -1,18 +1,28 @@
 import os
 import io
 from flask import Flask, request, jsonify
-import google.auth
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 app = Flask(__name__)
 
-def get_drive_service():
-    credentials, _ = google.auth.default(scopes=['https://www.googleapis.com/auth/drive.readonly'])
-    return build('drive', 'v3', credentials=credentials)
+def get_drive_service(readonly=True):
+    scope = 'https://www.googleapis.com/auth/drive.readonly' if readonly else 'https://www.googleapis.com/auth/drive'
+    creds = Credentials(
+        token=None,
+        refresh_token=os.environ['GOOGLE_REFRESH_TOKEN'],
+        client_id=os.environ['GOOGLE_CLIENT_ID'],
+        client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
+        token_uri='https://oauth2.googleapis.com/token',
+        scopes=[scope]
+    )
+    creds.refresh(Request())
+    return build('drive', 'v3', credentials=creds)
 
 def export_file_content(file_id, mime_type):
-    service = get_drive_service()
+    service = get_drive_service(readonly=True)
     try:
         if mime_type == 'application/vnd.google-apps.document':
             result = service.files().export(fileId=file_id, mimeType='text/plain').execute()
@@ -21,7 +31,6 @@ def export_file_content(file_id, mime_type):
             result = service.files().export(fileId=file_id, mimeType='text/csv').execute()
             return result.decode('utf-8')[:4000]
         else:
-            # Para Excel, Word, PDF — descargar y convertir
             file_meta = service.files().get(fileId=file_id, fields='name,mimeType').execute()
             request_obj = service.files().get_media(fileId=file_id)
             buffer = io.BytesIO()
@@ -30,13 +39,10 @@ def export_file_content(file_id, mime_type):
             while not done:
                 _, done = downloader.next_chunk()
             buffer.seek(0)
-            
-            # Subir de nuevo con conversión a Google Doc
-            from googleapiclient.http import MediaIoBaseUpload
-            drive_service_rw = build('drive', 'v3', credentials=google.auth.default(
-                scopes=['https://www.googleapis.com/auth/drive'])[0])
-            
-            if 'spreadsheet' in mime_type or 'excel' in mime_type or 'xlsx' in file_meta.get('name',''):
+
+            service_rw = get_drive_service(readonly=False)
+
+            if 'spreadsheet' in mime_type or 'excel' in mime_type or 'xlsx' in file_meta.get('name', ''):
                 target_mime = 'application/vnd.google-apps.spreadsheet'
                 export_mime = 'text/csv'
             elif 'pdf' in mime_type:
@@ -45,19 +51,19 @@ def export_file_content(file_id, mime_type):
             else:
                 target_mime = 'application/vnd.google-apps.document'
                 export_mime = 'text/plain'
-            
+
             media = MediaIoBaseUpload(buffer, mimetype=mime_type, resumable=True)
-            converted = drive_service_rw.files().create(
+            converted = service_rw.files().create(
                 body={'name': 'tmp_' + file_id, 'mimeType': target_mime},
                 media_body=media,
                 fields='id'
             ).execute()
-            
-            result = drive_service_rw.files().export(
+
+            result = service_rw.files().export(
                 fileId=converted['id'], mimeType=export_mime).execute()
-            
-            drive_service_rw.files().delete(fileId=converted['id']).execute()
-            
+
+            service_rw.files().delete(fileId=converted['id']).execute()
+
             return result.decode('utf-8')[:4000]
     except Exception as e:
         return f"Error extrayendo contenido: {str(e)}"
