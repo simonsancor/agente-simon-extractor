@@ -26,15 +26,15 @@ def export_file_content(file_id, mime_type):
         # --- Archivos nativos de Google ---
         if mime_type == 'application/vnd.google-apps.document':
             result = service.files().export(fileId=file_id, mimeType='text/plain').execute()
-            return result.decode('utf-8')[:4000]
+            return result.decode('utf-8')[:20000]
 
         elif mime_type == 'application/vnd.google-apps.spreadsheet':
             result = service.files().export(fileId=file_id, mimeType='text/csv').execute()
-            return result.decode('utf-8')[:4000]
+            return result.decode('utf-8')[:20000]
 
         elif mime_type == 'application/vnd.google-apps.presentation':
             result = service.files().export(fileId=file_id, mimeType='text/plain').execute()
-            return result.decode('utf-8')[:4000]
+            return result.decode('utf-8')[:20000]
 
         # --- Archivos binarios: Excel, Word, PDF ---
         else:
@@ -62,7 +62,7 @@ def export_file_content(file_id, mime_type):
                         row_str = ', '.join([str(c) if c is not None else '' for c in row])
                         if row_str.strip(','):
                             lines.append(row_str)
-                return '\n'.join(lines)[:4000]
+                return '\n'.join(lines)[:20000]
 
             # Word (.docx)
             elif mime_type in [
@@ -72,7 +72,7 @@ def export_file_content(file_id, mime_type):
                 import docx
                 doc = docx.Document(io.BytesIO(raw_bytes))
                 text = '\n'.join([p.text for p in doc.paragraphs if p.text.strip()])
-                return text[:4000]
+                return text[:20000]
 
             # PDF
             elif mime_type == 'application/pdf':
@@ -81,11 +81,11 @@ def export_file_content(file_id, mime_type):
                 with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
                     for page in pdf.pages:
                         text_parts.append(page.extract_text() or '')
-                return '\n'.join(text_parts)[:4000]
+                return '\n'.join(text_parts)[:20000]
 
             # Texto plano, CSV, etc.
             elif mime_type.startswith('text/'):
-                return raw_bytes.decode('utf-8', errors='ignore')[:4000]
+                return raw_bytes.decode('utf-8', errors='ignore')[:20000]
 
             else:
                 return f"Tipo de archivo no soportado: {mime_type}"
