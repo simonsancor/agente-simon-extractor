@@ -1,14 +1,18 @@
 import os
 import requests
-import time
+from flask import Flask, request, jsonify
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+
+app = Flask(__name__)
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 APPS_SCRIPT_URL = os.environ['APPS_SCRIPT_URL']
 DIRECTORIO_SHEET_ID = os.environ['DIRECTORIO_SHEET_ID']
+TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
+sesiones = {}
 
 def get_sheets_service():
     creds = Credentials(
@@ -31,7 +35,6 @@ def buscar_usuario(telefono):
         ).execute()
         rows = result.get('values', [])
         for row in rows[1:]:
-            print(f"Comparando: [{row[0].strip()}] vs [{str(telefono)}]")
             if len(row) >= 5 and row[0].strip() == str(telefono) and row[4].strip().upper() == 'TRUE':
                 return {
                     'telefono': row[0],
@@ -58,98 +61,78 @@ def consultar_agente(pregunta, usuario):
         return f"Error consultando al agente: {e}"
 
 def send_message(chat_id, text, reply_markup=None):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {'chat_id': chat_id, 'text': text}
     if reply_markup:
         payload['reply_markup'] = reply_markup
-    requests.post(url, json=payload)
+    requests.post(f"{TELEGRAM_API}/sendMessage", json=payload)
 
 def request_phone(chat_id):
     reply_markup = {
-        "keyboard": [[{
-            "text": "📱 Compartir mi número",
-            "request_contact": True
-        }]],
+        "keyboard": [[{"text": "📱 Compartir mi número", "request_contact": True}]],
         "resize_keyboard": True,
         "one_time_keyboard": True
     }
-    send_message(
-        chat_id,
+    send_message(chat_id,
         "Hola! Soy Jarvis, el agente de Simón.\n\n"
         "Para verificar tu acceso necesito confirmar tu número de teléfono.\n"
         "Toca el botón para compartirlo de forma segura 👇",
-        reply_markup=reply_markup
-    )
+        reply_markup=reply_markup)
 
 def remove_keyboard(chat_id, text):
-    reply_markup = {"remove_keyboard": True}
-    send_message(chat_id, text, reply_markup=reply_markup)
+    send_message(chat_id, text, reply_markup={"remove_keyboard": True})
 
-def get_updates(offset=None):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    params = {'timeout': 10, 'offset': offset}
-    try:
-        resp = requests.get(url, params=params, timeout=15)
-        return resp.json()
-    except:
-        return {'result': []}
+@app.route(f"/webhook/{TELEGRAM_TOKEN}", methods=['POST'])
+def webhook():
+    update = request.json
+    if 'message' not in update:
+        return jsonify({'ok': True})
 
-sesiones = {}
+    msg = update['message']
+    chat_id = msg['chat']['id']
+    user_id = msg['from']['id']
+    texto = msg.get('text', '').strip()
 
-def main():
-    print("Bot Jarvis Simón iniciado...")
-    offset = None
-    while True:
-        updates = get_updates(offset)
-        for update in updates.get('result', []):
-            offset = update['update_id'] + 1
-            if 'message' not in update:
-                continue
+    if 'contact' in msg:
+        telefono = msg['contact']['phone_number'].replace('+', '').replace(' ', '')
+        if msg['contact'].get('user_id') and msg['contact']['user_id'] != user_id:
+            send_message(chat_id, "⚠️ Por favor comparte tu propio número.")
+            return jsonify({'ok': True})
+        usuario = buscar_usuario(telefono)
+        if usuario:
+            sesiones[user_id] = usuario
+            remove_keyboard(chat_id,
+                f"✅ Acceso verificado. Hola {usuario['nombre'].split()[0]}!\n"
+                "Ya puedes hacerme tus preguntas.")
+        else:
+            remove_keyboard(chat_id,
+                f"❌ Número {telefono} no registrado.\n"
+                "Contacta a Simón para solicitar acceso.")
+        return jsonify({'ok': True})
 
-            msg = update['message']
-            chat_id = msg['chat']['id']
-            user_id = msg['from']['id']
-            texto = msg.get('text', '').strip()
+    if texto == '/start':
+        if user_id in sesiones:
+            send_message(chat_id, f"Ya estás verificado. ¿En qué te puedo ayudar?")
+        else:
+            request_phone(chat_id)
+        return jsonify({'ok': True})
 
-            if 'contact' in msg:
-                telefono = msg['contact']['phone_number'].replace('+', '').replace(' ', '')
-                if msg['contact'].get('user_id') and msg['contact']['user_id'] != user_id:
-                    send_message(chat_id, "⚠️ Por favor comparte tu propio número, no el de otro contacto.")
-                    continue
-                usuario = buscar_usuario(telefono)
-                if usuario:
-                    sesiones[user_id] = usuario
-                    remove_keyboard(chat_id,
-                        f"✅ Acceso verificado. Hola {usuario['nombre'].split()[0]}!\n"
-                        "Ya puedes hacerme tus preguntas.")
-                else:
-                    remove_keyboard(chat_id,
-                        "❌ Tu número no está registrado.\n"
-                        "Contacta a Simón para solicitar acceso.")
-                continue
+    if not texto:
+        return jsonify({'ok': True})
 
-            if texto == '/start':
-                if user_id in sesiones:
-                    send_message(chat_id,
-                        f"Ya estás verificado como {sesiones[user_id]['nombre'].split()[0]}. "
-                        "¿En qué te puedo ayudar?")
-                else:
-                    request_phone(chat_id)
-                continue
+    if user_id not in sesiones:
+        request_phone(chat_id)
+        return jsonify({'ok': True})
 
-            if not texto:
-                continue
+    usuario = sesiones[user_id]
+    send_message(chat_id, "Consultando... un momento ⏳")
+    respuesta = consultar_agente(texto, usuario)
+    send_message(chat_id, respuesta)
+    return jsonify({'ok': True})
 
-            if user_id not in sesiones:
-                request_phone(chat_id)
-                continue
-
-            usuario = sesiones[user_id]
-            send_message(chat_id, "Consultando... un momento ⏳")
-            respuesta = consultar_agente(texto, usuario)
-            send_message(chat_id, respuesta)
-
-        time.sleep(1)
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok'})
 
 if __name__ == '__main__':
-    main()
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
