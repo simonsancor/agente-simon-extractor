@@ -31,7 +31,7 @@ def buscar_usuario(telefono):
         service = get_sheets_service()
         result = service.spreadsheets().values().get(
             spreadsheetId=DIRECTORIO_SHEET_ID,
-            range='Hoja1!A:E'
+            range='Hoja 1!A:E'
         ).execute()
         rows = result.get('values', [])
         variantes = [
