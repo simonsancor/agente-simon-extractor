@@ -34,17 +34,17 @@ def buscar_usuario(telefono):
             range='Hoja1!A:E'
         ).execute()
         rows = result.get('values', [])
-        print(f"Total filas: {len(rows)}")
-        print(f"Buscando telefono: [{telefono}] tipo: {type(telefono)}")
-        for i, row in enumerate(rows[1:]):
-            if len(row) >= 1:
+        variantes = [
+            str(telefono),
+            telefono.lstrip('0'),
+            '0' + telefono,
+        ]
+        print(f"Buscando variantes: {variantes}")
+        print(f"Filas en sheet: {[row[0] if row else 'vacia' for row in rows[1:]]}")
+        for row in rows[1:]:
+            if len(row) >= 5:
                 val = row[0].strip()
-                print(f"Fila {i+2}: [{val}] len={len(val)} igual={val == str(telefono)}")
-                if len(val) == len(str(telefono)):
-                    for j, (a, b) in enumerate(zip(val, str(telefono))):
-                        if a != b:
-                            print(f"  Diferencia en pos {j}: [{ord(a)}] vs [{ord(b)}]")
-                if len(row) >= 5 and val == str(telefono) and row[4].strip().upper() == 'TRUE':
+                if val in variantes and row[4].strip().upper() == 'TRUE':
                     return {
                         'telefono': row[0],
                         'nombre': row[1],
