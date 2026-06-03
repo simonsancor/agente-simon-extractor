@@ -34,15 +34,24 @@ def buscar_usuario(telefono):
             range='Hoja1!A:E'
         ).execute()
         rows = result.get('values', [])
-        for row in rows[1:]:
-            if len(row) >= 5 and row[0].strip() == str(telefono) and row[4].strip().upper() == 'TRUE':
-                return {
-                    'telefono': row[0],
-                    'nombre': row[1],
-                    'rol': row[2].lower(),
-                    'empresas': row[3].lower(),
-                    'activo': True
-                }
+        print(f"Total filas: {len(rows)}")
+        print(f"Buscando telefono: [{telefono}] tipo: {type(telefono)}")
+        for i, row in enumerate(rows[1:]):
+            if len(row) >= 1:
+                val = row[0].strip()
+                print(f"Fila {i+2}: [{val}] len={len(val)} igual={val == str(telefono)}")
+                if len(val) == len(str(telefono)):
+                    for j, (a, b) in enumerate(zip(val, str(telefono))):
+                        if a != b:
+                            print(f"  Diferencia en pos {j}: [{ord(a)}] vs [{ord(b)}]")
+                if len(row) >= 5 and val == str(telefono) and row[4].strip().upper() == 'TRUE':
+                    return {
+                        'telefono': row[0],
+                        'nombre': row[1],
+                        'rol': row[2].lower(),
+                        'empresas': row[3].lower(),
+                        'activo': True
+                    }
     except Exception as e:
         print(f"Error buscando usuario: {e}")
     return None
@@ -94,6 +103,7 @@ def webhook():
 
     if 'contact' in msg:
         telefono = msg['contact']['phone_number'].replace('+', '').replace(' ', '')
+        print(f"Número recibido de Telegram: [{telefono}]")
         if msg['contact'].get('user_id') and msg['contact']['user_id'] != user_id:
             send_message(chat_id, "⚠️ Por favor comparte tu propio número.")
             return jsonify({'ok': True})
